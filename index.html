@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Detour: a new way to the same place</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #eef3e4;
+      --ink: #17261d;
+      --moss: #2f5d3a;
+      --plum: #5a3fc0;
+      --gold: #e8a317;
+      --mute: #5d6b61;
+      --card: #fbfdf7;
+      --line: #cfdcc0
+    }
+
+    @media (prefers-color-scheme:dark) {
+      :root {
+        --bg: #121c16;
+        --ink: #e8f0e0;
+        --moss: #8fd19e;
+        --plum: #b3a2ff;
+        --mute: #9aa99f;
+        --card: #1a271f;
+        --line: #2c3d32
+      }
+    }
+
+    * {
+      box-sizing: border-box
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font: 16px/1.5 system-ui, sans-serif
+    }
+
+    main {
+      max-width: 640px;
+      margin: 0 auto;
+      padding: 28px 16px 48px
+    }
+
+    h1 {
+      font: 700 clamp(2.4rem, 9vw, 3.6rem)/1 "Bricolage Grotesque", system-ui, sans-serif;
+      margin: 0 0 8px;
+      letter-spacing: -.02em
+    }
+
+    .sub {
+      margin: 0 0 20px;
+      color: var(--mute);
+      max-width: 46ch
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 16px;
+      display: grid;
+      gap: 12px
+    }
+
+    label {
+      display: grid;
+      gap: 4px;
+      font-weight: 600;
+      font-size: .9rem
+    }
+
+    input,
+    select,
+    textarea {
+      font: inherit;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--bg);
+      color: var(--ink);
+      width: 100%
+    }
+
+    input:focus-visible,
+    select:focus-visible,
+    textarea:focus-visible,
+    button:focus-visible,
+    a:focus-visible {
+      outline: 3px solid var(--plum);
+      outline-offset: 2px
+    }
+
+    .row {
+      display: flex;
+      gap: 8px
+    }
+
+    .row input {
+      flex: 1
+    }
+
+    .two {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      align-items: end
+    }
+
+    .chk {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 500;
+      padding-bottom: 10px
+    }
+
+    .chk input {
+      width: auto
+    }
+
+    button {
+      font: inherit;
+      font-weight: 700;
+      border: 0;
+      border-radius: 8px;
+      padding: 12px 16px;
+      background: var(--moss);
+      color: var(--bg);
+      cursor: pointer
+    }
+
+    button.ghost {
+      background: transparent;
+      color: var(--moss);
+      border: 1px solid var(--moss);
+      white-space: nowrap
+    }
+
+    button:disabled {
+      opacity: .6;
+      cursor: wait
+    }
+
+    #status {
+      margin: 0;
+      min-height: 1.4em;
+      color: var(--mute);
+      font-size: .9rem
+    }
+
+    #status.err {
+      color: #c0392b
+    }
+
+    #map {
+      height: 340px;
+      border-radius: 14px;
+      margin: 16px 0;
+      border: 1px solid var(--line)
+    }
+
+    #out {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 16px;
+      display: grid;
+      gap: 10px
+    }
+
+    #nudge {
+      font: 500 1.25rem/1.35 "Bricolage Grotesque", system-ui, sans-serif;
+      margin: 0
+    }
+
+    .stats {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+      color: var(--mute);
+      font-size: .9rem
+    }
+
+    .stats b {
+      color: var(--plum)
+    }
+
+    .bake {
+      border-left: 4px solid var(--gold);
+      padding-left: 12px
+    }
+
+    .bake h2 {
+      margin: 0;
+      font-size: 1.1rem
+    }
+
+    .tag {
+      font-size: .8rem;
+      color: var(--mute)
+    }
+
+    a {
+      color: var(--moss);
+      font-weight: 600
+    }
+
+    [hidden] {
+      display: none !important
+    }
+
+    footer {
+      margin-top: 20px;
+      font-size: .8rem;
+      color: var(--mute)
+    }
+  </style>
+</head>
+
+<body>
+  <main>
+    <h1>Detour</h1>
+    <p class="sub">Same destination, different way. Detour picks a fresh route, finds a bakery near it, and tells you
+      what to order.</p>
+
+    <section class="card">
+      <label>From
+        <span class="row"><input id="from" placeholder="Your usual starting point"><button id="loc" type="button"
+            class="ghost">Use my location</button></span>
+      </label>
+      <label>To <input id="to" placeholder="Where you usually go"></label>
+      <div class="two">
+        <label>Travelling by
+          <select id="mode">
+            <option value="foot">Walking</option>
+            <option value="bike">Cycling</option>
+            <option value="car">Driving</option>
+          </select>
+        </label>
+      </div>
+      <button id="go" type="button">Find my detour</button>
+      <p id="status" role="status"></p>
+    </section>
+
+    <div id="map" aria-label="Map of your usual and new route"></div>
+
+    <section id="out" hidden>
+      <p id="nudge"></p>
+      <div class="stats"><span>Usual: <span id="s1"></span></span><span>Detour: <b id="s2"></b></span></div>
+      <div class="bake">
+        <h2 id="bname"></h2>
+        <div class="tag" id="bmeta"></div>
+        <p id="food"></p>
+        <a id="blink" target="_blank" rel="noopener">Read its reviews on Google Maps</a>
+      </div>
+    </section>
+
+    <footer>Maps: OpenStreetMap, Nominatim, Overpass, FOSSGIS routing. Text: open-weight Gemma 4 via OpenRouter and
+      Google AI Studio. Hosted on Render.</footer>
+  </main>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script>
+    const $ = id => document.getElementById(id);
+    const map = L.map('map').setView([12.3, 76.65], 12);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(map);
+    let layers = [];
+    const status = (t, err) => { $('status').textContent = t; $('status').className = err ? 'err' : ''; };
+
+    // ---------- geo helpers ----------
+    const rad = d => d * Math.PI / 180;
+    function hav(a, b) {
+      const dLa = rad(b[0] - a[0]), dLo = rad(b[1] - a[1]);
+      const x = Math.sin(dLa / 2) ** 2 + Math.cos(rad(a[0])) * Math.cos(rad(b[0])) * Math.sin(dLo / 2) ** 2;
+      return 12742000 * Math.asin(Math.sqrt(x));
+    }
+    const minDist = (p, pts) => pts.reduce((m, q) => Math.min(m, hav(p, q)), Infinity);
+    const overlap = (r, usual) => {
+      const s = r.pts.filter((_, i) => i % 3 === 0), u = usual.pts.filter((_, i) => i % 2 === 0);
+      return s.filter(p => minDist(p, u) < 40).length / s.length;
+    };
+    function waypoint(a, b, frac, side) {
+      const k = Math.cos(rad(a[0]));
+      const dLa = b[0] - a[0], dLo = (b[1] - a[1]) * k, len = Math.hypot(dLa, dLo) || 1e-6;
+      const off = frac * len * side;
+      return [(a[0] + b[0]) / 2 + (-dLo / len) * off, (a[1] + b[1]) / 2 + (dLa / len) * off / k];
+    }
+    const speed = { foot: 5, bike: 15, car: 30 };
+    const mins = (m, mode) => Math.max(1, Math.round(m / 1000 / speed[mode] * 60));
+    const fmt = (r, mode) => `${(r.dist / 1000).toFixed(1)} km, ~${mins(r.dist, mode)} min`;
+
+    // ---------- network ----------
+    async function geocode(q) {
+      const m = q.match(/^\s*(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)\s*$/);
+      if (m) return [+m[1], +m[2]];
+      const r = await fetch('https://nominatim.openstreetmap.org/search?format=json&accept-language=en&limit=1&q=' + encodeURIComponent(q));
+      const j = await r.json();
+      if (!j.length) throw new Error(`Couldn't find "${q}". Try adding the city name.`);
+      return [+j[0].lat, +j[0].lon];
+    }
+    async function route(pts, mode) {
+      const svc = { foot: ['routed-foot', 'foot'], bike: ['routed-bike', 'bike'], car: ['routed-car', 'driving'] }[mode];
+      const c = pts.map(p => p[1] + ',' + p[0]).join(';');
+      const r = await fetch(`https://routing.openstreetmap.de/${svc[0]}/route/v1/${svc[1]}/${c}?overview=full&geometries=geojson`);
+      const j = await r.json();
+      if (!j.routes || !j.routes.length) return null;
+      return { pts: j.routes[0].geometry.coordinates.map(c => [c[1], c[0]]), dist: j.routes[0].distance };
+    }
+    const OVERPASS = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter', 'https://overpass.private.coffee/api/interpreter'];
+    async function overpass(q) {
+      for (const u of OVERPASS) {
+        try {
+          const r = await fetch(u, { method: 'POST', body: 'data=' + encodeURIComponent(q) });
+          const t = await r.text();
+          if (t.trim().startsWith('{')) return JSON.parse(t); // busy servers return an XML error page instead
+        } catch (e) { console.error(e); }
+      }
+      return null;
+    }
+    async function findBakery(r) {
+      const sample = r.pts.filter((_, i) => i % Math.ceil(r.pts.length / 25) === 0);
+      const line = sample.map(p => p[0].toFixed(5) + ',' + p[1].toFixed(5)).join(',');
+      for (const R of [500, 1500]) {
+        const q = `[out:json][timeout:20];nwr["shop"="bakery"](around:${R},${line});out center tags 30;`;
+        const j = await overpass(q);
+        if (!j) return null;
+        const found = j.elements.map(e => ({
+          name: e.tags.name, tags: e.tags, pos: [e.lat ?? e.center?.lat, e.lon ?? e.center?.lon]
+        })).filter(b => b.name && b.pos[0]);
+        if (found.length) {
+          found.forEach(b => b.d = minDist(b.pos, r.pts));
+          return found.sort((a, b) => a.d - b.d)[0];
+        }
+      }
+      return null;
+    }
+
+    async function post(url, body) {
+      const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(75000) });
+      if (!r.ok) throw new Error('Server ' + r.status);
+      return r.json();
+    }
+
+    // ---------- main ----------
+    let fromCoords = null, fromLabel = '';
+    $('loc').onclick = () => {
+      status('Getting your location…');
+      navigator.geolocation.getCurrentPosition(async p => {
+        fromCoords = [p.coords.latitude, p.coords.longitude];
+        let label = 'My location';
+        try {
+          const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&accept-language=en&zoom=17&lat=${fromCoords[0]}&lon=${fromCoords[1]}`);
+          const j = await r.json();
+          if (j.display_name) label = j.display_name.split(',').slice(0, 2).join(',').trim();
+        } catch (e) { console.error(e); }
+        fromLabel = label; $('from').value = label; status('');
+      }, () => status('Location was blocked. Type your starting point instead.', true));
+    };
+
+    $('go').onclick = async () => {
+      const from = $('from').value.trim(), to = $('to').value.trim(), mode = $('mode').value;
+      if (!from || !to) return status('Enter both a start and a destination.', true);
+      $('go').disabled = true; $('out').hidden = true;
+      try {
+        status('Finding your places…');
+        const [a, b] = await Promise.all([fromCoords && from === fromLabel ? fromCoords : geocode(from), geocode(to)]);
+        status('Mapping your usual route…');
+        const usual = await route([a, b], mode);
+        if (!usual) throw new Error('No route found between those two places for this travel mode.');
+
+        status('Looking for a fresh way…');
+        const cands = (await Promise.all([[.25, 1], [.25, -1], [.4, 1], [.4, -1]]
+          .map(([f, s]) => route([a, waypoint(a, b, f, s), b], mode)))).filter(Boolean);
+        if (!cands.length) throw new Error('Could not find an alternative route. Try a farther destination.');
+        cands.forEach(c => c.ov = overlap(c, usual));
+        const ok = cands.filter(c => c.dist <= usual.dist * 1.7);
+        const fresh = (ok.length ? ok : cands).sort((x, y) => x.ov - y.ov || x.dist - y.dist)[0];
+
+        status('Searching for a bakery on the way…');
+        const bk = await findBakery(fresh);
+
+        layers.forEach(l => map.removeLayer(l)); layers = [];
+        layers.push(L.polyline(usual.pts, { color: '#8a948c', weight: 4, dashArray: '8 8' }).addTo(map));
+        layers.push(L.polyline(fresh.pts, { color: '#5a3fc0', weight: 6 }).addTo(map));
+        layers.push(L.marker(a).addTo(map).bindPopup('Start'), L.marker(b).addTo(map).bindPopup('Destination'));
+        if (bk) layers.push(L.circleMarker(bk.pos, { radius: 10, color: '#e8a317', fillOpacity: .9 }).addTo(map).bindPopup(bk.name));
+        const bounds = L.polyline(fresh.pts).getBounds().extend(L.polyline(usual.pts).getBounds());
+        if (bk) bounds.extend(bk.pos);
+        map.fitBounds(bounds, { padding: [30, 30] });
+
+        $('s1').textContent = fmt(usual, mode); $('s2').textContent = fmt(fresh, mode);
+        const extra = Math.max(0, mins(fresh.dist, mode) - mins(usual.dist, mode));
+        $('out').hidden = false;
+        $('nudge').textContent = 'Writing your nudge…';
+        $('bname').textContent = bk ? bk.name : 'No bakery found';
+        $('bmeta').textContent = bk ? (bk.d <= 150 ? `Right on your detour (${Math.round(bk.d)} m)` : `About ${Math.round(bk.d)} m off your detour, a short walk`) : '';
+        $('food').textContent = '';
+        $('blink').hidden = !bk;
+        if (bk) $('blink').href = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(`${bk.name} ${bk.pos[0]},${bk.pos[1]}`);
+        status('Asking Gemma… (the free server may need ~30 seconds to wake up)');
+        try {
+          const t = await post('/api/text', { bakery: bk ? bk.name : null, lat: bk && bk.pos[0], lon: bk && bk.pos[1], extra, dist: bk && Math.round(bk.d) });
+          $('nudge').textContent = t.nudge;
+          $('food').textContent = t.dish || '';
+          status(t.ai ? 'Done. Enjoy the detour.' : 'The AI was busy, so this is a built-in line. Try again in a minute for an AI-written one.');
+        } catch (e) {
+          console.error(e);
+          $('nudge').textContent = 'Take the long way today and notice something new.';
+          status('Route is ready, but the AI server did not answer. Try again in a few seconds.', true);
+        }
+      } catch (e) {
+        console.error(e);
+        status(e.message || 'Something went wrong. Try again.', true);
+      } finally { $('go').disabled = false; }
+    };
+  </script>
+</body>
+
+</html>

@@ -400,20 +400,23 @@
         map.fitBounds(bounds, { padding: [30, 30] });
 
         $('s1').textContent = fmt(usual, mode);
-        $('s2').textContent = fmt(fresh, mode) + ` (+${((fresh.dist - usual.dist) / 1000).toFixed(1)} km)`;
+        $('s2').textContent = fmt(fresh, mode);
         const extra = Math.max(0, mins(fresh, mode) - mins(usual, mode));
         $('out').hidden = false;
         $('nudge').textContent = 'Writing your nudge…';
         $('bname').textContent = bk ? bk.name : 'No bakery found';
-        const extraKm = ((fresh.dist - usual.dist) / 1000).toFixed(1);
-        $('bmeta').textContent = bk ? `Adds ${extraKm} km and ${extra > 0 ? 'about ' + extra + ' min' : 'under a minute'} to your usual route` + (bk.d > 150 ? ` · the bakery is a ${Math.round(bk.d)} m walk off the route` : '') : '';
+        const dKm = (fresh.dist - usual.dist) / 1000;
+        const kmText = Math.abs(dKm) < 0.05 ? 'About the same distance' : `${Math.abs(dKm).toFixed(1)} km ${dKm < 0 ? 'shorter' : 'longer'}`;
+        const dMin = mins(fresh, mode) - mins(usual, mode);
+        const minText = dMin === 0 ? 'about the same time' : `about ${Math.abs(dMin)} min ${dMin < 0 ? 'faster' : 'slower'}`;
+        $('bmeta').textContent = bk ? `${kmText}, ${minText} than your usual route` : '';
         $('food').textContent = '';
         $('model').textContent = '';
         $('blink').hidden = !bk;
         if (bk) $('blink').href = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(`${bk.name} ${bk.pos[0]},${bk.pos[1]}`);
         status('Asking Gemma… (the free server may need ~30 seconds to wake up)');
         try {
-          const t = await post('/api/text', { bakery: bk ? bk.name : null, lat: bk && bk.pos[0], lon: bk && bk.pos[1], extra, extraKm: (fresh.dist - usual.dist) / 1000, dist: bk && Math.round(bk.d) });
+          const t = await post('/api/text', { bakery: bk ? bk.name : null, lat: bk && bk.pos[0], lon: bk && bk.pos[1], extra, extraKm: (fresh.dist - usual.dist) / 1000, dist: bk && Math.round(bk.d), mode });
           $('nudge').textContent = t.nudge;
           $('food').textContent = t.dish || '';
           $('model').textContent = t.model ? 'Message written by ' + t.model + ' (open-weight model)' : '';

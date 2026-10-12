@@ -145,17 +145,21 @@ const fallbackNudge = (name, extra, where = 'passes') => {
 };
 const bad = t => !t || t.length < 15 || t.length > 280 || /[\[\]]/.test(t);
 
-async function makeText({ bakery, lat, lon, extra, dist }) {
+async function makeText({ bakery, lat, lon, extra, extraKm, dist, mode }) {
   const name = String(bakery || '').slice(0, 80);
   const dm = Number(dist);
-  const where = dm > 150 ? `is a short walk (about ${Math.round(dm)} metres) from` : 'passes right by';
-  const ck = name + '|' + Math.round(Number(extra) || 0) + '|' + where;
+  const km = Number(extraKm) > 0 ? ` (${Number(extraKm).toFixed(1)} km)` : '';
+  const where = dm > 150
+    ? (mode === 'foot' ? `is a short walk (about ${Math.round(dm)} metres) from` : 'passes near')
+    : 'passes right by';
+  const ck = name + '|' + Math.round(Number(extra) || 0) + '|' + km + '|' + where + '|' + mode;
   const info = {};
   const hit = cache.get(ck);
   if (hit) info.via = hit.via;
   const nudgeP = hit ? Promise.resolve(hit.t) : llm(
     `Write one or two short, warm sentences encouraging someone to take a slightly different route today` +
-    ` that is ${Number(extra) || 0} minutes longer and ${where} a bakery${name ? ` called ${name}` : ''}. ` +
+    ` that is ${Number(extra) || 0} minutes${km} longer and ${where} a bakery${name ? ` called ${name}` : ''}. ` +
+    `They are travelling ${mode === 'foot' ? 'on foot' : mode === 'bike' ? 'by bike' : 'by car'}. Do not mention walking unless they are on foot. ` +
     `Plain text only: no emojis, no brackets, no quotation marks, no markdown, no placeholders. Output only the sentences.`, 80, info
   ).catch(() => '');
   const revP = name ? reviews(name, lat, lon).catch(() => null) : Promise.resolve(null);
@@ -177,7 +181,11 @@ http.createServer(async (req, res) => {
   if (req.method === 'GET' && (req.url === '/' || req.url.startsWith('/?'))) {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); return res.end(page);
   }
-  if (req.method === 'GET' && req.url === '/health') { res.writeHead(200); return res.end('ok'); }
+  if (req.method === 'GET' && req.url === '/health') {
+    // shows only whether each key is present, never the keys themselves
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ ok: true, keys: { gemini: !!GEMINI_API_KEY, openrouter: !!OPENROUTER_API_KEY, groq: !!GROQ_API_KEY, places: !!PLACES_API_KEY } }));
+  }
   if (req.method === 'POST' && req.url === '/api/text') {
     if (limited(ip)) { res.writeHead(429); return res.end('{}'); }
     let body = '';

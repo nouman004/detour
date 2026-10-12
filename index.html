@@ -258,12 +258,13 @@
         <h2 id="bname"></h2>
         <div class="tag" id="bmeta"></div>
         <p id="food"></p>
+        <p class="tag" id="model"></p>
         <a id="blink" target="_blank" rel="noopener">Read its reviews on Google Maps</a>
       </div>
     </section>
 
-    <footer>Maps: OpenStreetMap, Nominatim, Overpass, FOSSGIS routing. Text: open-weight Gemma 4 via OpenRouter and
-      Google AI Studio. Hosted on Render.</footer>
+    <footer>Maps: OpenStreetMap, Nominatim, Overpass, FOSSGIS routing. Text: open-weight Gemma 4 first (OpenRouter,
+      Google AI Studio), with open-weight gpt-oss and Qwen models on Groq as backup. Hosted on Render.</footer>
   </main>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
@@ -292,9 +293,9 @@
       const off = frac * len * side;
       return [(a[0] + b[0]) / 2 + (-dLo / len) * off, (a[1] + b[1]) / 2 + (dLa / len) * off / k];
     }
-    const speed = { foot: 5, bike: 15, car: 30 };
-    const mins = (m, mode) => Math.max(1, Math.round(m / 1000 / speed[mode] * 60));
-    const fmt = (r, mode) => `${(r.dist / 1000).toFixed(1)} km, ~${mins(r.dist, mode)} min`;
+    // Walking: 4.8 km/h from distance. Cycling and driving: the routing server's own duration (road types and turns, no live traffic).
+    const mins = (r, mode) => mode === 'foot' ? Math.max(1, Math.round(r.dist / 1000 / 4.8 * 60)) : Math.max(1, Math.round(r.dur / 60));
+    const fmt = (r, mode) => `${(r.dist / 1000).toFixed(1)} km, ~${mins(r, mode)} min`;
 
     // ---------- network ----------
     async function geocode(q) {
@@ -311,7 +312,7 @@
       const r = await fetch(`https://routing.openstreetmap.de/${svc[0]}/route/v1/${svc[1]}/${c}?overview=full&geometries=geojson`);
       const j = await r.json();
       if (!j.routes || !j.routes.length) return null;
-      return { pts: j.routes[0].geometry.coordinates.map(c => [c[1], c[0]]), dist: j.routes[0].distance };
+      return { pts: j.routes[0].geometry.coordinates.map(c => [c[1], c[0]]), dist: j.routes[0].distance, dur: j.routes[0].duration };
     }
     const OVERPASS = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter', 'https://overpass.private.coffee/api/interpreter'];
     async function overpass(q) {
@@ -376,12 +377,15 @@
         if (!usual) throw new Error('No route found between those two places for this travel mode.');
 
         status('Looking for a fresh way…');
-        const cands = (await Promise.all([[.25, 1], [.25, -1], [.4, 1], [.4, -1]]
+        const cands = (await Promise.all([[.15, 1], [.15, -1], [.25, 1], [.25, -1], [.35, 1], [.35, -1]]
           .map(([f, s]) => route([a, waypoint(a, b, f, s), b], mode)))).filter(Boolean);
         if (!cands.length) throw new Error('Could not find an alternative route. Try a farther destination.');
         cands.forEach(c => c.ov = overlap(c, usual));
-        const ok = cands.filter(c => c.dist <= usual.dist * 1.7);
-        const fresh = (ok.length ? ok : cands).sort((x, y) => x.ov - y.ov || x.dist - y.dist)[0];
+        const near = cands.filter(c => c.dist <= usual.dist * 1.35);
+        const ok = near.length ? near : cands.filter(c => c.dist <= usual.dist * 1.7);
+        // prefer routes that overlap little with the usual one but do not add much distance
+        const score = c => c.ov * 2 + (c.dist / usual.dist - 1);
+        const fresh = (ok.length ? ok : cands).sort((x, y) => score(x) - score(y))[0];
 
         status('Searching for a bakery on the way…');
         const bk = await findBakery(fresh);
@@ -395,20 +399,24 @@
         if (bk) bounds.extend(bk.pos);
         map.fitBounds(bounds, { padding: [30, 30] });
 
-        $('s1').textContent = fmt(usual, mode); $('s2').textContent = fmt(fresh, mode);
-        const extra = Math.max(0, mins(fresh.dist, mode) - mins(usual.dist, mode));
+        $('s1').textContent = fmt(usual, mode);
+        $('s2').textContent = fmt(fresh, mode) + ` (+${((fresh.dist - usual.dist) / 1000).toFixed(1)} km)`;
+        const extra = Math.max(0, mins(fresh, mode) - mins(usual, mode));
         $('out').hidden = false;
         $('nudge').textContent = 'Writing your nudge…';
         $('bname').textContent = bk ? bk.name : 'No bakery found';
-        $('bmeta').textContent = bk ? (bk.d <= 150 ? `Right on your detour (${Math.round(bk.d)} m)` : `About ${Math.round(bk.d)} m off your detour, a short walk`) : '';
+        const extraKm = ((fresh.dist - usual.dist) / 1000).toFixed(1);
+        $('bmeta').textContent = bk ? `Adds ${extraKm} km and ${extra > 0 ? 'about ' + extra + ' min' : 'under a minute'} to your usual route` + (bk.d > 150 ? ` · the bakery is a ${Math.round(bk.d)} m walk off the route` : '') : '';
         $('food').textContent = '';
+        $('model').textContent = '';
         $('blink').hidden = !bk;
         if (bk) $('blink').href = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(`${bk.name} ${bk.pos[0]},${bk.pos[1]}`);
         status('Asking Gemma… (the free server may need ~30 seconds to wake up)');
         try {
-          const t = await post('/api/text', { bakery: bk ? bk.name : null, lat: bk && bk.pos[0], lon: bk && bk.pos[1], extra, dist: bk && Math.round(bk.d) });
+          const t = await post('/api/text', { bakery: bk ? bk.name : null, lat: bk && bk.pos[0], lon: bk && bk.pos[1], extra, extraKm: (fresh.dist - usual.dist) / 1000, dist: bk && Math.round(bk.d) });
           $('nudge').textContent = t.nudge;
           $('food').textContent = t.dish || '';
+          $('model').textContent = t.model ? 'Message written by ' + t.model + ' (open-weight model)' : '';
           status(t.ai ? 'Done. Enjoy the detour.' : 'The AI was busy, so this is a built-in line. Try again in a minute for an AI-written one.');
         } catch (e) {
           console.error(e);
